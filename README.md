@@ -8,6 +8,13 @@ Example app using Go's wasm
 $ GOOS=js GOARCH=wasm go build -o test.wasm test.go
 ```
 
+## Run
+
+```
+$ go get github.com/mattn/serve
+$ serve
+```
+
 ## License
 
 MIT
