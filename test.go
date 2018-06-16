@@ -5,11 +5,19 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"syscall/js"
 )
 
 func main() {
-	resp, err := http.Get("http://localhost:5000/logo.png")
+	href := js.Global.Get("location").Get("href")
+	u, err := url.Parse(href.String())
+	if err != nil {
+		log.Fatal(err)
+	}
+	u.Path = "/logo.png"
+
+	resp, err := http.Get(u.String())
 	if err != nil {
 		log.Fatal(err)
 	}
