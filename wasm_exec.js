@@ -27,11 +27,17 @@
 		global.TextEncoder = util.TextEncoder;
 		global.TextDecoder = util.TextDecoder;
 	} else {
-		window.global = window;
+		if (typeof window !== "undefined") {
+			window.global = window;
+		} else if (typeof self !== "undefined") {
+			self.global = self;
+		} else {
+			throw new Error("cannot export Go (neither window nor self is defined)");
+		}
 
 		let outputBuf = "";
 		global.fs = {
-			constants: {},
+			constants: { O_WRONLY: -1, O_RDWR: -1, O_CREAT: -1, O_TRUNC: -1, O_APPEND: -1, O_EXCL: -1, O_NONBLOCK: -1, O_SYNC: -1 }, // unused
 			writeSync(fd, buf) {
 				outputBuf += decoder.decode(buf);
 				const nl = outputBuf.lastIndexOf("\n");
@@ -81,21 +87,67 @@
 			}
 
 			const loadValue = (addr) => {
+				const f = mem().getFloat64(addr, true);
+				if (!isNaN(f)) {
+					return f;
+				}
+
 				const id = mem().getUint32(addr, true);
 				return this._values[id];
 			}
 
 			const storeValue = (addr, v) => {
-				if (v === undefined) {
-					mem().setUint32(addr, 0, true);
+				const nanHead = 0x7FF80000;
+
+				if (typeof v === "number") {
+					if (isNaN(v)) {
+						mem().setUint32(addr + 4, nanHead, true);
+						mem().setUint32(addr, 0, true);
+						return;
+					}
+					mem().setFloat64(addr, v, true);
 					return;
 				}
-				if (v === null) {
-					mem().setUint32(addr, 1, true);
-					return;
+
+				switch (v) {
+					case undefined:
+						mem().setUint32(addr + 4, nanHead, true);
+						mem().setUint32(addr, 1, true);
+						return;
+					case null:
+						mem().setUint32(addr + 4, nanHead, true);
+						mem().setUint32(addr, 2, true);
+						return;
+					case true:
+						mem().setUint32(addr + 4, nanHead, true);
+						mem().setUint32(addr, 3, true);
+						return;
+					case false:
+						mem().setUint32(addr + 4, nanHead, true);
+						mem().setUint32(addr, 4, true);
+						return;
 				}
-				this._values.push(v);
-				mem().setUint32(addr, this._values.length - 1, true);
+
+				let ref = this._refs.get(v);
+				if (ref === undefined) {
+					ref = this._values.length;
+					this._values.push(v);
+					this._refs.set(v, ref);
+				}
+				let typeFlag = 0;
+				switch (typeof v) {
+					case "string":
+						typeFlag = 1;
+						break;
+					case "symbol":
+						typeFlag = 2;
+						break;
+					case "function":
+						typeFlag = 3;
+						break;
+				}
+				mem().setUint32(addr + 4, nanHead | typeFlag, true);
+				mem().setUint32(addr, ref, true);
 			}
 
 			const loadSlice = (addr) => {
@@ -109,8 +161,7 @@
 				const len = getInt64(addr + 8);
 				const a = new Array(len);
 				for (let i = 0; i < len; i++) {
-					const id = mem().getUint32(array + i * 4, true);
-					a[i] = this._values[id];
+					a[i] = loadValue(array + i * 8);
 				}
 				return a;
 			}
@@ -126,8 +177,12 @@
 				go: {
 					// func wasmExit(code int32)
 					"runtime.wasmExit": (sp) => {
+						const code = mem().getInt32(sp + 8, true);
 						this.exited = true;
-						this.exit(mem().getInt32(sp + 8, true));
+						delete this._inst;
+						delete this._values;
+						delete this._refs;
+						this.exit(code);
 					},
 
 					// func wasmWrite(fd uintptr, p unsafe.Pointer, n int32)
@@ -173,21 +228,6 @@
 						crypto.getRandomValues(loadSlice(sp + 8));
 					},
 
-					// func boolVal(value bool) ref
-					"syscall/js.boolVal": (sp) => {
-						storeValue(sp + 16, mem().getUint8(sp + 8) !== 0);
-					},
-
-					// func intVal(value int) ref
-					"syscall/js.intVal": (sp) => {
-						storeValue(sp + 16, getInt64(sp + 8));
-					},
-
-					// func floatVal(value float64) ref
-					"syscall/js.floatVal": (sp) => {
-						storeValue(sp + 16, mem().getFloat64(sp + 8, true));
-					},
-
 					// func stringVal(value string) ref
 					"syscall/js.stringVal": (sp) => {
 						storeValue(sp + 24, loadString(sp + 8));
@@ -220,10 +260,10 @@
 							const m = Reflect.get(v, loadString(sp + 16));
 							const args = loadSliceOfValues(sp + 32);
 							storeValue(sp + 56, Reflect.apply(m, v, args));
-							mem().setUint8(sp + 60, 1);
+							mem().setUint8(sp + 64, 1);
 						} catch (err) {
 							storeValue(sp + 56, err);
-							mem().setUint8(sp + 60, 0);
+							mem().setUint8(sp + 64, 0);
 						}
 					},
 
@@ -233,10 +273,10 @@
 							const v = loadValue(sp + 8);
 							const args = loadSliceOfValues(sp + 16);
 							storeValue(sp + 40, Reflect.apply(v, undefined, args));
-							mem().setUint8(sp + 44, 1);
+							mem().setUint8(sp + 48, 1);
 						} catch (err) {
 							storeValue(sp + 40, err);
-							mem().setUint8(sp + 44, 0);
+							mem().setUint8(sp + 48, 0);
 						}
 					},
 
@@ -246,26 +286,11 @@
 							const v = loadValue(sp + 8);
 							const args = loadSliceOfValues(sp + 16);
 							storeValue(sp + 40, Reflect.construct(v, args));
-							mem().setUint8(sp + 44, 1);
+							mem().setUint8(sp + 48, 1);
 						} catch (err) {
 							storeValue(sp + 40, err);
-							mem().setUint8(sp + 44, 0);
+							mem().setUint8(sp + 48, 0);
 						}
-					},
-
-					// func valueFloat(v ref) float64
-					"syscall/js.valueFloat": (sp) => {
-						mem().setFloat64(sp + 16, parseFloat(loadValue(sp + 8)), true);
-					},
-
-					// func valueInt(v ref) int
-					"syscall/js.valueInt": (sp) => {
-						setInt64(sp + 16, parseInt(loadValue(sp + 8)));
-					},
-
-					// func valueBool(v ref) bool
-					"syscall/js.valueBool": (sp) => {
-						mem().setUint8(sp + 16, !!loadValue(sp + 8));
 					},
 
 					// func valueLength(v ref) int
@@ -286,6 +311,11 @@
 						loadSlice(sp + 16).set(str);
 					},
 
+					// func valueInstanceOf(v ref, t ref) bool
+					"syscall/js.valueInstanceOf": (sp) => {
+						mem().setUint8(sp + 24, loadValue(sp + 8) instanceof loadValue(sp + 16));
+					},
+
 					"debug": (value) => {
 						console.log(value);
 					},
@@ -296,17 +326,17 @@
 		async run(instance) {
 			this._inst = instance;
 			this._values = [ // TODO: garbage collection
+				NaN,
 				undefined,
 				null,
+				true,
+				false,
 				global,
 				this._inst.exports.mem,
-				() => { // resolveCallbackPromise
-					if (this.exited) {
-						throw new Error("bad callback: Go program has already exited");
-					}
-					setTimeout(this._resolveCallbackPromise, 0); // make sure it is asynchronous
-				},
+				this,
 			];
+			this._refs = new Map();
+			this._callbackShutdown = false;
 			this.exited = false;
 
 			const mem = new DataView(this._inst.exports.mem.buffer)
@@ -343,7 +373,12 @@
 
 			while (true) {
 				const callbackPromise = new Promise((resolve) => {
-					this._resolveCallbackPromise = resolve;
+					this._resolveCallbackPromise = () => {
+						if (this.exited) {
+							throw new Error("bad callback: Go program has already exited");
+						}
+						setTimeout(resolve, 0); // make sure it is asynchronous
+					};
 				});
 				this._inst.exports.run(argc, argv);
 				if (this.exited) {
@@ -365,17 +400,16 @@
 		go.env = process.env;
 		go.exit = process.exit;
 		WebAssembly.instantiate(fs.readFileSync(process.argv[2]), go.importObject).then((result) => {
-			process.on("exit", () => { // Node.js exits if no callback is pending
-				if (!go.exited) {
-					console.error("error: all goroutines asleep and no JavaScript callback pending - deadlock!");
-					process.exit(1);
+			process.on("exit", (code) => { // Node.js exits if no callback is pending
+				if (code === 0 && !go.exited) {
+					// deadlock, make Go print error and stack traces
+					go._callbackShutdown = true;
+					go._inst.exports.run();
 				}
 			});
 			return go.run(result.instance);
 		}).catch((err) => {
-			console.error(err);
-			go.exited = true;
-			process.exit(1);
+			throw err;
 		});
 	}
 })();
