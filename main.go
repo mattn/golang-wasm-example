@@ -19,6 +19,7 @@ func main() {
 	}
 	u.Path = "/logo.png"
 
+	log.Println("loading image file: " + u.String())
 	resp, err := http.Get(u.String())
 	if err != nil {
 		log.Fatal(err)
@@ -41,5 +42,6 @@ func main() {
 	canvas.Call("addEventListener", "click", js.NewCallback(func(args []js.Value) {
 		js.Global().Get("window").Call("alert", "Don't click me!")
 	}))
+
 	select {}
 }
