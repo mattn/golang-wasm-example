@@ -5,17 +5,23 @@ Example app using Go's wasm support.
 ## Build
 
 
-    GOOS=js GOARCH=wasm go build -o main.wasm main.go
+```sh
+GOOS=js GOARCH=wasm go build -o main.wasm main.go
+```
 
 
 ## Run
 
-    go get github.com/mattn/serve
-    serve
+```sh
+go get github.com/mattn/serve
+serve
+```
 
 ## Build and run
 
-    make
+```sh
+make
+```
 
 ## License
 
