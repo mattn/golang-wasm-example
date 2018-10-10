@@ -1,18 +1,26 @@
 # golang-wasm-example
 
-Example app using Go's wasm
+Example app using Go's wasm support.
 
 ## Build
 
+
+```sh
+GOOS=js GOARCH=wasm go build -o main.wasm main.go
 ```
-$ GOOS=js GOARCH=wasm go build -o test.wasm test.go
-```
+
 
 ## Run
 
+```sh
+go get github.com/mattn/serve
+serve
 ```
-$ go get github.com/mattn/serve
-$ serve
+
+## Build and run
+
+```sh
+make
 ```
 
 ## License
