@@ -34,13 +34,15 @@ func main() {
 	canvas := js.Global().Get("document").Call("getElementById", "canvas")
 	ctx := canvas.Call("getContext", "2d")
 	image := js.Global().Call("eval", "new Image()")
-	image.Call("addEventListener", "load", js.NewCallback(func(args []js.Value) {
+	image.Call("addEventListener", "load", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		ctx.Call("drawImage", image, 0, 0)
+		return nil
 	}))
 	image.Set("src", "data:image/png;base64,"+enc)
 
-	canvas.Call("addEventListener", "click", js.NewCallback(func(args []js.Value) {
+	canvas.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		js.Global().Get("window").Call("alert", "Don't click me!")
+		return nil
 	}))
 
 	select {}
