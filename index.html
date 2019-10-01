@@ -2,6 +2,12 @@
 <html>
   <head>
     <title>Testing WebAssembly</title>
+    <style>
+      #canvas {
+		  position: absolute;
+		  left: 0px;
+	  }
+    </style>
     <script src="wasm_exec.js"></script>
     <script type="text/javascript">
 
@@ -23,12 +29,6 @@ window.onload = function() {
 };
 
     </script>
-    <style>
-      #canvas {
-        width: 500px;
-        height: 300px;
-      }
-    </style>
   </head>
   <body>
     <canvas id="canvas"></canvas>
