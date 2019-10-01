@@ -17,13 +17,13 @@ import (
 	"time"
 )
 
-func main() {
+func loadImage(path string) string {
 	href := js.Global().Get("location").Get("href")
 	u, err := url.Parse(href.String())
 	if err != nil {
 		log.Fatal(err)
 	}
-	u.Path = "/logo.png"
+	u.Path = path
 	u.RawQuery = fmt.Sprint(time.Now().UnixNano())
 
 	log.Println("loading image file: " + u.String())
@@ -36,35 +36,51 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	enc := base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b)
+}
 
-	canvas := js.Global().Get("document").Call("getElementById", "canvas")
+func main() {
+	document := js.Global().Get("document")
+	canvas := document.Call("getElementById", "canvas")
 	ctx := canvas.Call("getContext", "2d")
-	image := js.Global().Call("eval", "new Image()")
-	image.Call("addEventListener", "load", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		canvas.Set("width", image.Get("naturalWidth"))
-		canvas.Set("height", image.Get("naturalHeight"))
-		ctx.Call("drawImage", image, 0, 0)
-		js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-			style := canvas.Get("style")
-			left := style.Get("left")
-			if left == js.Undefined() {
-				left = js.ValueOf("0px")
-			} else {
-				n, _ := strconv.Atoi(strings.TrimRight(left.String(), "px"))
-				left = js.ValueOf(fmt.Sprintf("%dpx", n+10))
-			}
-			style.Set("left", left)
-			return nil
-		}), js.ValueOf(200))
-		return nil
-	}))
-	image.Set("src", "data:image/png;base64,"+enc)
+	canvas.Set("width", js.ValueOf(500))
+	canvas.Set("height", js.ValueOf(500))
+
+	images := make([]js.Value, 4)
+	files := []string{
+		"/data/out01.png",
+		"/data/out02.png",
+		"/data/out03.png",
+		"/data/out02.png",
+	}
+	for i, file := range files {
+		images[i] = js.Global().Call("eval", "new Image()")
+		images[i].Set("src", "data:image/png;base64,"+loadImage(file))
+	}
 
 	canvas.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		js.Global().Get("window").Call("alert", "Don't click me!")
 		return nil
 	}))
+
+	n := 0
+	js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		ctx.Call("clearRect", 0, 0, 500, 500)
+		ctx.Call("drawImage", images[n%4], 0, 0)
+		n++
+
+		style := canvas.Get("style")
+		left := style.Get("left")
+		if left == js.Undefined() {
+			left = js.ValueOf("0px")
+		} else {
+			n, _ := strconv.Atoi(strings.TrimRight(left.String(), "px"))
+			left = js.ValueOf(fmt.Sprintf("%dpx", n+10))
+		}
+		style.Set("left", left)
+
+		return nil
+	}), js.ValueOf(50))
 
 	select {}
 }
